@@ -1,0 +1,132 @@
+import numpy as np
+from scipy.signal import find_peaks
+from matplotlib import pyplot as plt
+from pathlib import Path
+import cv2
+import os
+
+desktop_path = Path.home() / "Desktop"
+output_path = desktop_path / "processed_ppg_data"
+
+def findVideoFiles():
+video_extensions = ['.mp4', '.avi', '.mov', '.mkv']
+video_files = []
+
+for ext in video_extensions:
+video_files.extend(list(desktop_path.glob(f'*{ext}')))
+
+print(f"Found {len(video_files)} video files on desktop:")
+for i, file in enumerate(video_files):
+print(f"{i+1}. {file.name}")
+
+return video_files
+
+def getRawRGB(video_file):
+rawVid = cv2.VideoCapture(str(video_file))
+vidLen = int(rawVid.get(cv2.CAP_PROP_FRAME_COUNT))
+fps = rawVid.get(cv2.CAP_PROP_FPS)
+
+rgbArray = np.zeros([vidLen, 3])
+print(f'Processing: {video_file.name}')
+print(f'Video length: {vidLen} frames, FPS: {fps}')
+
+count = 0
+while count < vidLen:
+success, image = rawVid.read()
+if not success:
+break
+
+B = np.mean(image[:,:,0])
+G = np.mean(image[:,:,1])
+R = np.mean(image[:,:,2])
+
+rgbArray[count] = [R, G, B]
+count += 1
+
+rawVid.release()
+return rgbArray
+
+def plotRGB(rgb, filename):
+colors = ['red', 'green', 'blue']
+pltTitle = f'RGB Plot for {filename}'
+pltXLabel = ' '
+pltYLabel = 'SpO2'
+
+plt.figure(figsize=(12, 6))
+for i, color in enumerate(colors):
+plt.plot(rgb[:,i], color=color, label=f'{color.upper()} channel')
+
+plt.legend(loc='upper right')
+plt.title(pltTitle)
+plt.xlabel(pltXLabel)
+plt.ylabel(pltYLabel)
+plt.grid(True, alpha=0.3)
+
+return plt
+
+def saveRGB(rgb, video_file):
+
+if not output_path.exists():
+output_path.mkdir()
+
+base_name = video_file.stem
+
+csv_file = output_path / f"{base_name}.csv"
+np.savetxt(csv_file, rgb, delimiter=',',
+header='Red,Green,Blue', comments='')
+
+png_file = output_path / f"{base_name}.png"
+plt = plotRGB(rgb, base_name)
+plt.savefig(png_file, dpi=300, bbox_inches='tight')
+plt.close()
+
+print(f"Saved: {csv_file.name} and {png_file.name}")
+return csv_file, png_file
+
+def processDesktopVideos():
+print("Searching for video files on desktop...")
+video_files = findVideoFiles()
+
+if not video_files:
+return {}
+print("No video files found on desktop!")
+
+if not output_path.exists():
+output_path.mkdir()
+
+processed_data = {}
+
+for video_file in video_files:
+try:
+print(f"\n--- Processing {video_file.name} ---")
+rgb_data = getRawRGB(video_file)
+csv_file, png_file = saveRGB(rgb_data, video_file)
+processed_data[video_file.name] = {
+'rgb_data': rgb_data,
+'csv_file': csv_file,
+'png_file': png_file,
+'frames': len(rgb_data)
+}
+
+print(f"Successfully processed {video_file.name}")
+
+except Exception as e:
+print(f"Error processing {video_file.name}: {str(e)}")
+continue
+print(f"\nProcessing complete! Results saved to: {output_path}")
+return processed_data
+
+if __name__ == '__main__':
+print("Desktop Video PPG Processor")
+print("=" * 40)
+
+results = processDesktopVideos()
+
+if results:
+print(f"\nProcessing Summary:")
+print(f"Total files processed: {len(results)}")
+
+for filename, data in results.items():
+print(f" - {filename}: {data['frames']} frames")
+else:
+print("No files were processed.")
